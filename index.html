@@ -160,7 +160,26 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBJ0TfGDii49pUHIR0kwm37qE-9ObctX4Y",
+  authDomain: "tower-stack-4a77c.firebaseapp.com",
+  projectId: "tower-stack-4a77c",
+  storageBucket: "tower-stack-4a77c.firebasestorage.app",
+  messagingSenderId: "10844815153",
+  appId: "1:10844815153:web:4daad56d3eb391d1ce7a10",
+  measurementId: "G-FDXX8VD2Q6"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const SCORES_COLLECTION = 'towerstack_scores';
+
 (function(){
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -306,15 +325,15 @@
     document.getElementById('overOverlay').classList.remove('hidden');
   }
 
-  async function loadBest(){
+  function loadBest(){
     try{
-      const res = await window.storage.get('towerstack_best', false);
-      if(res && res.value) best = parseInt(res.value)||0;
+      const v = localStorage.getItem('towerstack_best');
+      if(v) best = parseInt(v)||0;
     }catch(e){ best = 0; }
     updateHud();
   }
-  async function saveBest(v){
-    try{ await window.storage.set('towerstack_best', String(v), false); }catch(e){}
+  function saveBest(v){
+    try{ localStorage.setItem('towerstack_best', String(v)); }catch(e){}
   }
 
   // ---- leaderboard ----
@@ -325,14 +344,14 @@
   const lbOverlay = document.getElementById('lbOverlay');
   const leaderboardListEl = document.getElementById('leaderboardList');
 
-  async function loadNickname(){
+  function loadNickname(){
     try{
-      const res = await window.storage.get('towerstack_nickname', false);
-      if(res && res.value) nickInput.value = res.value;
+      const v = localStorage.getItem('towerstack_nickname');
+      if(v) nickInput.value = v;
     }catch(e){}
   }
-  async function saveNickname(name){
-    try{ await window.storage.set('towerstack_nickname', name, false); }catch(e){}
+  function saveNickname(name){
+    try{ localStorage.setItem('towerstack_nickname', name); }catch(e){}
   }
 
   async function submitScore(){
@@ -341,12 +360,14 @@
     submitBtn.disabled = true;
     submitStatus.textContent = '제출 중...';
     try{
-      const key = 'towerstack_scores:' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
-      await window.storage.set(key, JSON.stringify({name, score}), true);
+      await addDoc(collection(db, SCORES_COLLECTION), {
+        name, score, createdAt: serverTimestamp()
+      });
       saveNickname(name);
       hasSubmittedThisRound = true;
       submitStatus.textContent = '제출 완료! 🎉';
     }catch(e){
+      console.error(e);
       submitStatus.textContent = '제출 실패, 다시 시도해주세요.';
       submitBtn.disabled = false;
     }
@@ -355,26 +376,12 @@
   async function fetchLeaderboard(){
     leaderboardListEl.innerHTML = '<div class="lb-loading">불러오는 중...</div>';
     try{
-      const listRes = await window.storage.list('towerstack_scores:', true);
-      const keys = (listRes && listRes.keys) ? listRes.keys.slice(0,150) : [];
-      if(keys.length === 0){
-        leaderboardListEl.innerHTML = '<div class="lb-empty">아직 기록이 없어요. 첫 기록의 주인공이 되어보세요!</div>';
-        return;
-      }
-      const entries = [];
-      for(const k of keys){
-        try{
-          const r = await window.storage.get(k, true);
-          if(r && r.value){
-            const parsed = JSON.parse(r.value);
-            if(typeof parsed.score === 'number') entries.push(parsed);
-          }
-        }catch(e){}
-      }
-      entries.sort((a,b)=> b.score - a.score);
-      const top = entries.slice(0,10);
+      const q = query(collection(db, SCORES_COLLECTION), orderBy('score','desc'), limit(10));
+      const snap = await getDocs(q);
+      const top = [];
+      snap.forEach(doc => top.push(doc.data()));
       if(top.length === 0){
-        leaderboardListEl.innerHTML = '<div class="lb-empty">아직 기록이 없어요.</div>';
+        leaderboardListEl.innerHTML = '<div class="lb-empty">아직 기록이 없어요. 첫 기록의 주인공이 되어보세요!</div>';
         return;
       }
       leaderboardListEl.innerHTML = top.map((e,i)=>`
@@ -385,6 +392,7 @@
         </div>
       `).join('');
     }catch(e){
+      console.error(e);
       leaderboardListEl.innerHTML = '<div class="lb-empty">랭킹을 불러오지 못했어요.</div>';
     }
   }
