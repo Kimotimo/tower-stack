@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>타워 스택</title>
+<style>
+  :root{
+    --text:#f7f6ff;
+    --muted:#a9a4c2;
+    --accent:#ffd166;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:#0d0b18;
+    font-family:'SF Pro Rounded','Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic',sans-serif;
+    color:var(--text);
+    overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    touch-action:none; user-select:none;
+  }
+  #stage{
+    position:relative;
+    width:min(94vw, 420px);
+    aspect-ratio: 390/680;
+    border-radius:22px;
+    box-shadow: 0 0 0 1px #ffffff10, 0 30px 60px -20px #000000aa;
+    overflow:hidden;
+    cursor:pointer;
+  }
+  canvas{display:block; position:absolute; top:0; left:0; width:100%; height:100%;}
+  #hud{
+    position:absolute; top:0; left:0; right:0;
+    display:flex; flex-direction:column; align-items:center;
+    padding:20px 16px 0; z-index:5; pointer-events:none;
+  }
+  .score-main{font-size:44px; font-weight:900; font-variant-numeric: tabular-nums; text-shadow:0 2px 12px #00000066;}
+  .best-row{font-size:12px; color:var(--muted); font-weight:700; letter-spacing:0.5px; margin-top:2px;}
+  #comboTag{
+    position:absolute; z-index:8; pointer-events:none;
+    font-weight:900; font-size:18px; color:var(--accent);
+    text-shadow:0 0 10px #ffd16688; opacity:0; transition:opacity .18s ease;
+    letter-spacing:0.5px;
+  }
+  .overlay{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background: linear-gradient(180deg,#0d0b18cc,#0d0b18f5);
+    z-index:20; text-align:center; padding:24px; gap:14px;
+    cursor:default;
+  }
+  .overlay.hidden{display:none;}
+  .overlay h1{
+    font-size:30px; margin:0; font-weight:900;
+    background:linear-gradient(135deg,#ffd166,#f582ae);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .overlay p{margin:0; color:var(--muted); font-size:14px; line-height:1.6; max-width:250px;}
+  .overlay .score-big{font-size:44px; font-weight:900; color:var(--text); font-variant-numeric: tabular-nums;}
+  .overlay .best{font-size:13px; color:var(--accent); font-weight:700;}
+  button{
+    appearance:none; border:none; cursor:pointer;
+    background:linear-gradient(135deg,#ffd166,#f582ae);
+    color:#231027; font-weight:800; font-size:15px;
+    padding:13px 34px; border-radius:14px;
+    box-shadow:0 8px 24px -6px #f582ae66;
+    transition:transform .12s ease;
+  }
+  button:active{transform:scale(0.95);}
+  #hintOverlay{
+    position:absolute; inset:0; z-index:6;
+    display:flex; align-items:center; justify-content:center;
+    padding-top:40px; pointer-events:none; transition:opacity .35s ease;
+  }
+  #hintOverlay span{
+    background:#ffffff14; border:1px solid #ffffff22;
+    padding:8px 16px; border-radius:999px;
+    font-size:13px; font-weight:600; color:#ece7fb;
+  }
+  .ghost-btn{
+    background:transparent; box-shadow:none;
+    color:var(--muted); font-weight:700; font-size:13px;
+    padding:8px 18px; border:1px solid #ffffff22;
+  }
+  .row-btns{display:flex; gap:10px; flex-wrap:wrap; justify-content:center;}
+  #nickRow{
+    display:flex; gap:8px; align-items:center; margin-top:2px;
+    width:100%; max-width:260px;
+  }
+  #nickInput{
+    flex:1; min-width:0;
+    background:#ffffff12; border:1px solid #ffffff26;
+    color:var(--text); font-size:14px; font-weight:600;
+    padding:10px 12px; border-radius:12px;
+    outline:none;
+  }
+  #nickInput::placeholder{color:#7a7495;}
+  #submitBtn{padding:10px 18px; font-size:13px;}
+  #submitBtn:disabled{opacity:0.5; cursor:default;}
+  #submitStatus{font-size:12px; color:var(--muted); min-height:16px;}
+  .privacy-note{font-size:11px; color:#756f8f; max-width:250px; line-height:1.5;}
+  #leaderboardList{
+    width:100%; max-width:280px; max-height:320px; overflow-y:auto;
+    display:flex; flex-direction:column; gap:6px;
+    margin-top:4px;
+  }
+  .lb-row{
+    display:flex; align-items:center; gap:10px;
+    background:#ffffff0c; border:1px solid #ffffff16;
+    border-radius:12px; padding:9px 12px;
+    font-size:14px; text-align:left;
+  }
+  .lb-rank{width:22px; font-weight:900; color:var(--accent); flex-shrink:0;}
+  .lb-name{flex:1; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .lb-score{font-weight:800; font-variant-numeric: tabular-nums;}
+  .lb-empty{color:var(--muted); font-size:13px; padding:20px 0;}
+  .lb-loading{color:var(--muted); font-size:13px; padding:20px 0;}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div class="score-main" id="scoreVal">0</div>
+    <div class="best-row">BEST <span id="bestVal">0</span></div>
+  </div>
+  <div id="comboTag"></div>
+  <div id="hintOverlay"><span>화면을 탭해서 블록을 쌓으세요</span></div>
+
+  <div class="overlay" id="startOverlay">
+    <h1>타워 스택</h1>
+    <p>탭 한 번으로 블록을 떨어뜨려 쌓으세요.<br>정확히 맞출수록 콤보가 쌓이고,<br>어긋나면 그만큼 블록이 잘려나가요.</p>
+    <div class="row-btns">
+      <button id="startBtn">시작하기</button>
+      <button id="showLbBtn" class="ghost-btn">🏆 랭킹보기</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="overOverlay">
+    <div class="best-row">GAME OVER</div>
+    <div class="score-big" id="finalScore">0</div>
+    <div class="best" id="newBestTag" style="display:none;">🏆 신기록!</div>
+    <div id="nickRow">
+      <input id="nickInput" type="text" placeholder="닉네임 입력 (최대 10자)" maxlength="10">
+      <button id="submitBtn">제출</button>
+    </div>
+    <div class="privacy-note">닉네임과 점수는 이 게임을 플레이하는 모두에게 공개돼요. 실명은 피해주세요.</div>
+    <div id="submitStatus"></div>
+    <div class="row-btns">
+      <button id="retryBtn">다시하기</button>
+      <button id="overLbBtn" class="ghost-btn">랭킹보기</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="lbOverlay">
+    <div class="best-row">🏆 TOP 10</div>
+    <div id="leaderboardList"><div class="lb-loading">불러오는 중...</div></div>
+    <button id="lbCloseBtn" class="ghost-btn">닫기</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+
+  const LOGICAL_W = 390, LOGICAL_H = 680;
+  let scale = 1;
+
+  function resize(){
+    const rect = stage.getBoundingClientRect();
+    canvas.width = LOGICAL_W * devicePixelRatio;
+    canvas.height = LOGICAL_H * devicePixelRatio;
+    scale = rect.width / LOGICAL_W;
+  }
+  window.addEventListener('resize', resize);
+
+  // ---- constants ----
+  const BLOCK_H = 34;
+  const FIXED_TOP_Y = 380;
+  const MARGIN = 26;
+  const BASE_WIDTH = 170;
+  const BASE_SPEED = 130;
+  const SPEED_STEP = 3.4;
+  const MAX_SPEED = 430;
+  const PERFECT_TOLERANCE = 6;
+
+  // ---- state ----
+  let blocks = [];      // {x, w, i}
+  let topIndex = 0;
+  let moving = null;    // {x, w, vx}
+  let score = 0, best = 0;
+  let combo = 0;
+  let running = false;
+  let debris = [];
+  let baseHue = 265;
+  let shake = 0;
+
+  const scoreEl = document.getElementById('scoreVal');
+  const bestEl = document.getElementById('bestVal');
+  const comboTag = document.getElementById('comboTag');
+  const hintEl = document.getElementById('hintOverlay');
+
+  function hueForLayer(i){ return (baseHue + i*7) % 360; }
+  function blockColor(i){ return `hsl(${hueForLayer(i)} 72% 60%)`; }
+  function bgColorTop(){ return `hsl(${(baseHue+topIndex*7+40)%360} 40% 10%)`; }
+  function bgColorBottom(){ return `hsl(${(baseHue+topIndex*7+40)%360} 55% 4%)`; }
+
+  function displayY(i){ return FIXED_TOP_Y + (topIndex - i)*BLOCK_H; }
+
+  function spawnMoving(){
+    const belowW = blocks[topIndex].w;
+    const fromLeft = Math.random() < 0.5;
+    const speed = Math.min(MAX_SPEED, BASE_SPEED + score*SPEED_STEP);
+    moving = {
+      x: fromLeft ? MARGIN + belowW/2 : LOGICAL_W - MARGIN - belowW/2,
+      w: belowW,
+      vx: fromLeft ? speed : -speed
+    };
+  }
+
+  function resetGame(){
+    blocks = [{x: LOGICAL_W/2, w: BASE_WIDTH, i:0}];
+    topIndex = 0;
+    score = 0; combo = 0; debris = [];
+    baseHue = Math.floor(Math.random()*360);
+    updateHud();
+    spawnMoving();
+  }
+
+  function updateHud(){
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+  }
+
+  function popCombo(text){
+    comboTag.textContent = text;
+    comboTag.style.left = '50%';
+    comboTag.style.top = (FIXED_TOP_Y*scale*(680/680)) + 'px'; // will reposition via css transform below
+    comboTag.style.transform = 'translate(-50%, -140%)';
+    comboTag.style.top = ((FIXED_TOP_Y-40)*scale) + 'px';
+    comboTag.style.opacity = '1';
+    clearTimeout(popCombo._t);
+    popCombo._t = setTimeout(()=>{ comboTag.style.opacity='0'; }, 480);
+  }
+
+  function drop(){
+    if(!running || !moving) return;
+    const below = blocks[topIndex];
+    const curL = moving.x - moving.w/2, curR = moving.x + moving.w/2;
+    const belL = below.x - below.w/2, belR = below.x + below.w/2;
+    const overlapL = Math.max(curL, belL);
+    const overlapR = Math.min(curR, belR);
+    const overlapW = overlapR - overlapL;
+
+    if(overlapW <= 2){
+      endGame();
+      return;
+    }
+
+    const diff = below.w - overlapW;
+    let newW = overlapW;
+    let newX = (overlapL+overlapR)/2;
+    let perfect = false;
+
+    if(diff <= PERFECT_TOLERANCE){
+      newW = below.w;
+      newX = below.x;
+      perfect = true;
+    } else {
+      // spawn debris for the cut-off chunk
+      if(curL < belL){
+        debris.push({x:(curL+belL)/2, y:FIXED_TOP_Y, w:belL-curL, h:BLOCK_H, vx:-60-Math.random()*60, vy:-40, rot:0, vr:(Math.random()-0.5)*6, color:blockColor(topIndex+1), t:1});
+      }
+      if(curR > belR){
+        debris.push({x:(belR+curR)/2, y:FIXED_TOP_Y, w:curR-belR, h:BLOCK_H, vx:60+Math.random()*60, vy:-40, rot:0, vr:(Math.random()-0.5)*6, color:blockColor(topIndex+1), t:1});
+      }
+    }
+
+    topIndex++;
+    blocks[topIndex] = {x:newX, w:newW, i:topIndex};
+    score++;
+    if(perfect){
+      combo++;
+      score += combo>1 ? combo : 0;
+      shake = 6;
+      popCombo(combo>1 ? `PERFECT x${combo}` : 'PERFECT!');
+    } else {
+      combo = 0;
+    }
+    updateHud();
+    spawnMoving();
+  }
+
+  function endGame(){
+    running = false;
+    moving = null;
+    if(score > best){ best = score; document.getElementById('newBestTag').style.display='block'; saveBest(best); }
+    else document.getElementById('newBestTag').style.display='none';
+    document.getElementById('finalScore').textContent = score;
+    hasSubmittedThisRound = false;
+    submitBtn.disabled = false;
+    submitStatus.textContent = '';
+    document.getElementById('overOverlay').classList.remove('hidden');
+  }
+
+  async function loadBest(){
+    try{
+      const res = await window.storage.get('towerstack_best', false);
+      if(res && res.value) best = parseInt(res.value)||0;
+    }catch(e){ best = 0; }
+    updateHud();
+  }
+  async function saveBest(v){
+    try{ await window.storage.set('towerstack_best', String(v), false); }catch(e){}
+  }
+
+  // ---- leaderboard ----
+  let hasSubmittedThisRound = false;
+  const nickInput = document.getElementById('nickInput');
+  const submitBtn = document.getElementById('submitBtn');
+  const submitStatus = document.getElementById('submitStatus');
+  const lbOverlay = document.getElementById('lbOverlay');
+  const leaderboardListEl = document.getElementById('leaderboardList');
+
+  async function loadNickname(){
+    try{
+      const res = await window.storage.get('towerstack_nickname', false);
+      if(res && res.value) nickInput.value = res.value;
+    }catch(e){}
+  }
+  async function saveNickname(name){
+    try{ await window.storage.set('towerstack_nickname', name, false); }catch(e){}
+  }
+
+  async function submitScore(){
+    const name = (nickInput.value || '').trim().slice(0,10) || '익명';
+    if(hasSubmittedThisRound){ return; }
+    submitBtn.disabled = true;
+    submitStatus.textContent = '제출 중...';
+    try{
+      const key = 'towerstack_scores:' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+      await window.storage.set(key, JSON.stringify({name, score}), true);
+      saveNickname(name);
+      hasSubmittedThisRound = true;
+      submitStatus.textContent = '제출 완료! 🎉';
+    }catch(e){
+      submitStatus.textContent = '제출 실패, 다시 시도해주세요.';
+      submitBtn.disabled = false;
+    }
+  }
+
+  async function fetchLeaderboard(){
+    leaderboardListEl.innerHTML = '<div class="lb-loading">불러오는 중...</div>';
+    try{
+      const listRes = await window.storage.list('towerstack_scores:', true);
+      const keys = (listRes && listRes.keys) ? listRes.keys.slice(0,150) : [];
+      if(keys.length === 0){
+        leaderboardListEl.innerHTML = '<div class="lb-empty">아직 기록이 없어요. 첫 기록의 주인공이 되어보세요!</div>';
+        return;
+      }
+      const entries = [];
+      for(const k of keys){
+        try{
+          const r = await window.storage.get(k, true);
+          if(r && r.value){
+            const parsed = JSON.parse(r.value);
+            if(typeof parsed.score === 'number') entries.push(parsed);
+          }
+        }catch(e){}
+      }
+      entries.sort((a,b)=> b.score - a.score);
+      const top = entries.slice(0,10);
+      if(top.length === 0){
+        leaderboardListEl.innerHTML = '<div class="lb-empty">아직 기록이 없어요.</div>';
+        return;
+      }
+      leaderboardListEl.innerHTML = top.map((e,i)=>`
+        <div class="lb-row">
+          <div class="lb-rank">${i+1}</div>
+          <div class="lb-name">${escapeHtml(e.name || '익명')}</div>
+          <div class="lb-score">${e.score}</div>
+        </div>
+      `).join('');
+    }catch(e){
+      leaderboardListEl.innerHTML = '<div class="lb-empty">랭킹을 불러오지 못했어요.</div>';
+    }
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function openLeaderboard(){
+    document.getElementById('startOverlay').classList.add('hidden');
+    document.getElementById('overOverlay').classList.add('hidden');
+    lbOverlay.classList.remove('hidden');
+    fetchLeaderboard();
+  }
+  function closeLeaderboard(){
+    lbOverlay.classList.add('hidden');
+    if(running){
+      // was opened mid-round from over overlay; return to over overlay if game not running
+    }
+    if(!running && score>0){
+      document.getElementById('overOverlay').classList.remove('hidden');
+    } else if(!running){
+      document.getElementById('startOverlay').classList.remove('hidden');
+    }
+  }
+
+  document.getElementById('showLbBtn').addEventListener('click', (e)=>{ e.stopPropagation(); openLeaderboard(); });
+  document.getElementById('overLbBtn').addEventListener('click', (e)=>{ e.stopPropagation(); openLeaderboard(); });
+  document.getElementById('lbCloseBtn').addEventListener('click', (e)=>{ e.stopPropagation(); closeLeaderboard(); });
+  submitBtn.addEventListener('click', (e)=>{ e.stopPropagation(); submitScore(); });
+  nickInput.addEventListener('pointerdown', e=> e.stopPropagation());
+  nickInput.addEventListener('keydown', e=> e.stopPropagation());
+
+  // ---- input ----
+  function onTap(e){
+    if(!running) return;
+    drop();
+  }
+  stage.addEventListener('pointerdown', onTap);
+  window.addEventListener('keydown', e=>{ if(e.code==='Space') drop(); });
+
+  // ---- update ----
+  function updateMoving(dt){
+    if(!moving) return;
+    moving.x += moving.vx*dt;
+    const halfW = moving.w/2;
+    if(moving.x - halfW < MARGIN){ moving.x = MARGIN+halfW; moving.vx *= -1; }
+    if(moving.x + halfW > LOGICAL_W - MARGIN){ moving.x = LOGICAL_W-MARGIN-halfW; moving.vx *= -1; }
+  }
+
+  function updateDebris(dt){
+    debris.forEach(d=>{
+      d.vy += 900*dt;
+      d.x += d.vx*dt;
+      d.y += d.vy*dt;
+      d.rot += d.vr*dt;
+      d.t -= dt*0.9;
+    });
+    debris = debris.filter(d=>d.t>0 && d.y < LOGICAL_H+100);
+  }
+
+  // ---- draw ----
+  function drawBlock(x,y,w,h,color, alpha){
+    ctx.save();
+    ctx.globalAlpha = alpha==null?1:alpha;
+    ctx.fillStyle = color;
+    const r = 6;
+    const left = x-w/2, top = y-h/2+BLOCK_H/2 - h/2; // unused fallback
+    roundRect(ctx, x-w/2, y-h/2, w, h, r);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    roundRect(ctx, x-w/2, y-h/2, w, h*0.35, r);
+    ctx.fill();
+    ctx.restore();
+  }
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function draw(){
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+
+    // background gradient
+    const g = ctx.createLinearGradient(0,0,0,LOGICAL_H);
+    g.addColorStop(0, bgColorTop());
+    g.addColorStop(1, bgColorBottom());
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,LOGICAL_W,LOGICAL_H);
+
+    let sx=0, sy=0;
+    if(shake>0){
+      sx = (Math.random()-0.5)*shake;
+      sy = (Math.random()-0.5)*shake;
+      shake *= 0.85;
+      if(shake<0.3) shake=0;
+    }
+    ctx.save();
+    ctx.translate(sx,sy);
+
+    for(let i=Math.max(0,topIndex-14); i<=topIndex; i++){
+      const b = blocks[i];
+      if(!b) continue;
+      const y = displayY(i);
+      if(y < -BLOCK_H || y > LOGICAL_H+BLOCK_H) continue;
+      drawBlock(b.x, y, b.w, BLOCK_H, blockColor(i));
+    }
+
+    debris.forEach(d=>{
+      ctx.save();
+      ctx.globalAlpha = Math.max(0,d.t);
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.rot);
+      ctx.fillStyle = d.color;
+      roundRect(ctx, -d.w/2, -d.h/2, d.w, d.h, 5);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    if(moving){
+      drawBlock(moving.x, FIXED_TOP_Y - BLOCK_H, moving.w, BLOCK_H, blockColor(topIndex+1));
+    }
+
+    ctx.restore();
+  }
+
+  function tick(dt){
+    if(running){
+      updateMoving(dt);
+    }
+    updateDebris(dt);
+    draw();
+  }
+
+  let last = performance.now();
+  function loop(now){
+    const dt = Math.min((now-last)/1000, 0.032);
+    last = now;
+    tick(dt);
+    requestAnimationFrame(loop);
+  }
+
+  function startGame(){
+    resetGame();
+    running = true;
+    document.getElementById('startOverlay').classList.add('hidden');
+    document.getElementById('overOverlay').classList.add('hidden');
+    lbOverlay.classList.add('hidden');
+    hintEl.style.opacity = '1';
+    setTimeout(()=>{ hintEl.style.opacity='0'; }, 1800);
+  }
+  document.getElementById('startBtn').addEventListener('click', (e)=>{ e.stopPropagation(); startGame(); });
+  document.getElementById('retryBtn').addEventListener('click', (e)=>{ e.stopPropagation(); startGame(); });
+
+  resize();
+  loadBest();
+  loadNickname();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
